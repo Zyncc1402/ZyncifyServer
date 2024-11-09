@@ -1,50 +1,70 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"time"
 
-	"github.com/gin-gonic/gin"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
+	db "github.com/Zync1402/ZyncifyServer/database"
+	"github.com/Zync1402/ZyncifyServer/models"
+	"github.com/gorilla/mux"
 )
 
-type Todos struct {
-	Id          string    `json:"id" gorm:"primaryKey"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Completed   bool      `json:"completed"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-}
-
 func main() {
-	db, err := gorm.Open(postgres.Open("postgresql://neondb_owner:RPxL8QMq7lAI@ep-wispy-bar-a1kx78in.ap-southeast-1.aws.neon.tech/neondb?sslmode=require"), &gorm.Config{})
-	db.AutoMigrate(&Todos{})
+	db := db.Connect()
 
-	if err != nil {
-		log.Fatal(err)
-	} else {
-		fmt.Println("Connected to Database")
-	}
+	r := mux.NewRouter()
 
-	router := gin.Default()
-	router.GET("/api/getTodos", func(c *gin.Context) {
-		var allTodos Todos
-		result := db.Find(&allTodos)
-		fmt.Println(result.RowsAffected)
-	})
-	router.POST("/api/createTodo", func(c *gin.Context) {
-		var newTodo Todos
+	r.HandleFunc("/api/getTodos", func(w http.ResponseWriter, r *http.Request) {
+		var todos []models.Todos
+		db.Where(models.Todos{UserID: "ch123"}).Find(&todos)
+		json.NewEncoder(w).Encode(todos)
+	}).Methods("GET")
 
-		if err := c.ShouldBindBodyWithJSON(&newTodo); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	r.HandleFunc("/api/getTodo", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "Missing 'id' query parameter", http.StatusBadRequest)
 			return
 		}
+		var todos []models.Todos
+		db.Where(models.Todos{UserID: "ch123", Id: id}).First(&todos)
+		json.NewEncoder(w).Encode(todos)
+	}).Methods("GET")
 
-		db.Create(&newTodo)
-	})
-	router.Run(":3001")
+	r.HandleFunc("/api/addTodo", func(w http.ResponseWriter, r *http.Request) {
+		var Todo models.Todos
+		decoder := json.NewDecoder(r.Body)
+		res := decoder.Decode(&Todo)
+		if res != nil {
+			http.Error(w, res.Error(), http.StatusBadRequest)
+			return
+		}
+		db.Create(&Todo)
+	}).Methods("POST")
+
+	r.HandleFunc("/api/updateTodo", func(w http.ResponseWriter, r *http.Request) {
+		var Todo models.Todos
+		decoder := json.NewDecoder(r.Body)
+		res := decoder.Decode(&Todo)
+		if res != nil {
+			http.Error(w, res.Error(), http.StatusBadRequest)
+			return
+		}
+		db.Where(models.Todos{UserID: "ch123"}).Save(&Todo)
+	}).Methods("PATCH")
+
+	r.HandleFunc("/api/deleteTodo", func(w http.ResponseWriter, r *http.Request) {
+		var Todo models.Todos
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			http.Error(w, "Missing 'id' query parameter", http.StatusBadRequest)
+			return
+		}
+		db.Where(models.Todos{UserID: "ch123", Id: id}).Delete(&Todo)
+	}).Methods("DELETE")
+
+	fmt.Println("Server running on port 3001")
+	log.Fatal(http.ListenAndServe(":3001", r))
 }
